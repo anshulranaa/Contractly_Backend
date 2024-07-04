@@ -15,7 +15,13 @@ const stream = require("stream");
 stream.setMaxListeners(0);
 
 const app = express();
-app.use(cors());
+const corsOptions = {
+  origin:
+    "https://contractly-frontend-k802662y8-anshul-ranas-projects.vercel.app",
+  optionsSuccessStatus: 200,
+};
+
+app.use(cors(corsOptions));
 app.use(bodyParser.json());
 
 let clients = [];
