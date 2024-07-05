@@ -8,6 +8,7 @@ const fs = require("fs");
 const { exec } = require("child_process");
 const solc = require("solc");
 const ethers = require("ethers");
+const crypto = require("crypto");
 require("dotenv").config();
 
 const envfile = require("envfile");
@@ -15,6 +16,8 @@ const stream = require("stream");
 stream.setMaxListeners(0);
 
 const app = express();
+
+const encryptionKey = process.env.ENCRYPTION_KEY;
 
 app.use(cors());
 app.use(bodyParser.json());
@@ -106,8 +109,15 @@ app.post("/api/store-private-key", (req, res) => {
   }
 
   try {
-    // Store the private key securely (for example, in .env file)
-    fs.writeFileSync(".env", `PRIVATE_KEY="${privateKey}"\n`, { flag: "a" });
+    // Encrypt the private key
+
+    const encryptedPrivateKey = encryptPrivateKey(
+      privateKey,
+      process.env.ENCRYPTION_KEY
+    );
+
+    // Store the encrypted private key in pvtkey.md
+    fs.writeFileSync("pvtkey.md", encryptedPrivateKey);
 
     // Optionally, you can use exec to perform additional operations
     async function installLibs() {
@@ -123,6 +133,7 @@ app.post("/api/store-private-key", (req, res) => {
   }
 });
 
+// Endpoint to deploy the contract using the private key from pvtkey.md
 app.post("/api/deploy", async (req, res) => {
   const { signerAddress } = req.body; // Assuming the signature is handled elsewhere
   console.log(req.body);
@@ -148,12 +159,19 @@ app.post("/api/deploy", async (req, res) => {
 
     console.log("Compiled Contract");
 
+    // Read the encrypted private key from pvtkey.md
+    const encryptedPrivateKey = fs.readFileSync("pvtkey.md", "utf8");
+    console.log(encryptPrivateKey);
+
+    // Decrypt the private key
+    const privateKey = decryptPrivateKey(
+      encryptedPrivateKey,
+      process.env.ENCRYPTION_KEY
+    );
+
     // Initialize MetaMask and connect
     const provider = new ethers.JsonRpcProvider(process.env.INFURIA_URL);
-    console.log(`Provider : ${provider}`);
-    const wallet = new ethers.Wallet(process.env.PRIVATE_KEY, provider);
-    console.log(`Wallet Created`);
-    console.log(`Wallet : ${wallet}`);
+    const wallet = new ethers.Wallet(privateKey, provider);
 
     // Deploy the contract using ethers.js with MetaMask signer
     const factory = new ethers.ContractFactory(abi, bytecode, wallet);
@@ -393,3 +411,26 @@ const PORT = process.env.PORT || 8000;
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });
+
+function decryptPrivateKey(encryptedPrivateKey, encryptionKey) {
+  const [iv, encrypted] = encryptedPrivateKey.split(":");
+  const decipher = crypto.createDecipheriv(
+    "aes-256-cbc",
+    Buffer.from(encryptionKey, "hex"),
+    Buffer.from(iv, "hex")
+  );
+  let decrypted = decipher.update(encrypted, "hex", "utf8");
+  decrypted += decipher.final("utf8");
+  return decrypted;
+}
+function encryptPrivateKey(privateKey, encryptionKey) {
+  const iv = crypto.randomBytes(16); // Generate a random IV
+  const cipher = crypto.createCipheriv(
+    "aes-256-cbc",
+    Buffer.from(encryptionKey, "hex"),
+    iv
+  );
+  let encrypted = cipher.update(privateKey, "utf8", "hex");
+  encrypted += cipher.final("hex");
+  return `${iv.toString("hex")}:${encrypted}`; // Store IV and encrypted text together
+}
